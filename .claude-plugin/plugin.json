@@ -1,6 +1,6 @@
 {
   "name": "ripple-hud",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Make any Claude model work like Fable 5: its task workflow, auto-routed intensity levels with a hard-problem protocol, local token stats, and token discipline. Same quality bar, far fewer tokens.",
   "author": {
     "name": "Dallenlol",

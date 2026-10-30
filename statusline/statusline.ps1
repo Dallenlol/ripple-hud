@@ -1,12 +1,16 @@
 #!/usr/bin/env pwsh
-# Ripple HUD — fable-mode's statusline renderer — native Windows / PowerShell edition.
+# Ripple HUD: the Claude Code statusline renderer, native Windows / PowerShell edition.
 # Pure PowerShell (no bash, no python3) so the HUD works without Git Bash.
-# Receives session JSON on stdin, prints the same two-line ANSI HUD as statusline.sh:
+# Receives session JSON on stdin, prints the same two- or three-line ANSI HUD as statusline.sh:
 #   line 1: persona/level, model, branch (+dirty count), cost (+spend rate when high)
 #   line 2: in-flight prompt (elapsed, estimate, current tool) + context meter,
-#           cache hit rate, usage-limit meters (5h / 7d) with burn-out warning
+#           cache hit rate, usage-limit meters (5h / 7d) with a forecast:
+#           when the window fills vs when it resets, or the headroom left at reset
+#   line 3: only when a window will fill early: target burn rate and the cheapest
+#           cuts among this machine's busiest sessions (/compact, ->sonnet, pause)
+# Self-test: statusline/test-statusline.sh ps1
 # Segments past line 1's basics appear only when they cross a threshold.
-# Installed to ~/.claude/fable-mode/statusline.ps1 by scripts/install-statusline.ps1.
+# Installed to ~/.claude/ripple-hud/statusline.ps1 by scripts/install-statusline.ps1.
 # Windows PowerShell 5.1 compatible: no ?? / ?. / ternaries, no ConvertFrom-Json -AsHashtable.
 # Every optional segment is guarded: a failure drops that segment, never the HUD.
 $ErrorActionPreference = 'SilentlyContinue'
@@ -130,8 +134,7 @@ function Classify($rec) {
     return $null
 }
 
-function Parse($lines) {
-    $out = [System.Collections.Generic.List[object]]::new()
+function ParseJson($lines) {
     # Cheap prefilter before the (slow) JSON parse: Claude Code writes compact JSON.
     $keep = [System.Collections.Generic.List[string]]::new()
     foreach ($line in $lines) {
@@ -146,7 +149,12 @@ function Parse($lines) {
             $parsed = foreach ($line in $keep) { try { $line | ConvertFrom-Json } catch {} }
         }
     }
-    foreach ($rec in @($parsed)) {
+    return , @($parsed)
+}
+
+function Parse($lines) {
+    $out = [System.Collections.Generic.List[object]]::new()
+    foreach ($rec in (ParseJson $lines)) {
         if ($null -eq $rec) { continue }
         $kind = Classify $rec
         if ($kind) { $out.Add([pscustomobject]@{ K = $kind; R = $rec }) }
@@ -185,10 +193,11 @@ function Median($xs) {
     return ($s[$n / 2 - 1] + $s[$n / 2]) / 2
 }
 
-$DATA  = Join-Path $HOME '.claude/fable-mode'
+$DATA  = Join-Path $HOME '.claude/ripple-hud'
 $model = if ($d.model -and $d.model.display_name) { [string]$d.model.display_name } else { '?' }
 $cost  = $d.cost
 $cwd   = if ($d.workspace -and $d.workspace.current_dir) { [string]$d.workspace.current_dir } else { '.' }
+$sid   = [string]$d.session_id
 $tp    = [string]$d.transcript_path
 $cw    = $d.context_window
 $rl    = $d.rate_limits
@@ -450,40 +459,216 @@ try {
     }
 } catch {}
 
-# usage limits (Pro/Max): 5h always, 7d from 50%; reset time from 50%;
-# warn when the current burn rate would exhaust the window before it resets
+# usage limits (Pro/Max): 5h always, 7d from 50% or when at risk. rate_limits is
+# account-wide (every machine and agent on this login), so the forecast covers all
+# of them; the slowdown plan's per-session split only sees this machine's transcripts.
+# limit-samples.json and burn-cache.json are shared with statusline.sh.
 $WINDOW_SECS = @{ five_hour = 5 * 3600; seven_day = 7 * 86400 }
+$LOOKBACK = 1800
+$ARROW = [char]0x2192  # right arrow
+$MINUS = [char]0x2212  # minus sign
+
+function Clock([double]$t, [string]$fmt) {
+    ([DateTimeOffset]::FromUnixTimeSeconds([long][Math]::Floor($t))).LocalDateTime.ToString($fmt, $INV)
+}
+
+function WriteJson([string]$f, $obj) {
+    try {
+        $tmp = "$f.$PID"
+        [IO.File]::WriteAllText($tmp, (ConvertTo-Json -InputObject $obj -Depth 6 -Compress))
+        Move-Item -LiteralPath $tmp -Destination $f -Force
+    } catch {}
+}
+
+function RecentRate([string]$wname, [double]$pct, [double]$resets) {
+    # %/s over the last ~30 min, from samples shared by every HUD on this machine.
+    $f = Join-Path $DATA 'limit-samples.json'
+    $table = @{}
+    try { $j = Get-Content -LiteralPath $f -Raw | ConvertFrom-Json; foreach ($p in $j.PSObject.Properties) { $table[$p.Name] = $p.Value } } catch {}
+    $w = $table[$wname]
+    $s = [System.Collections.Generic.List[object]]::new()
+    if ($w -and [Math]::Abs([double]$w.resets - $resets) -lt 300) {  # else: new window
+        foreach ($x in @($w.s)) { if ($x -and ($now - [double]$x[0]) -lt 3 * 3600) { $s.Add(@([double]$x[0], [double]$x[1])) } }
+    }
+    if (-not $s.Count -or $s[$s.Count - 1][1] -ne $pct -or ($now - $s[$s.Count - 1][0]) -gt 300) {
+        $s.Add(@($now, $pct))
+        $table[$wname] = @{ resets = $resets; s = [object[]]$s.ToArray() }
+        WriteJson $f $table
+    }
+    $base = $null
+    foreach ($x in $s) { if (($now - $x[0]) -ge $LOOKBACK) { $base = $x } }
+    if (-not $base -and ($now - $s[0][0]) -ge 900) { $base = $s[0] }
+    if (-not $base) { return $null }
+    return [Math]::Max(0.0, ($pct - $base[1]) / ($now - $base[0]))
+}
+
+function Forecast([string]$wname, $pct, $resets) {
+    # @(rate %/s, seconds early the window fills or $null, % spare at reset)
+    if ($null -eq $pct -or -not $resets -or $resets -le $now -or $pct -ge 100) { return $null }
+    $rate = $null
+    if ($wname -eq 'five_hour') { $rate = RecentRate $wname $pct $resets }
+    if ($null -eq $rate) {  # 7d, or too few samples yet: average over the window so far
+        $spent = $now - ($resets - $WINDOW_SECS[$wname])
+        if ($pct -lt 10 -or $spent -lt 600) { return $null }
+        $rate = $pct / $spent
+    }
+    $left = $resets - $now
+    if ($rate * $left -gt 100 - $pct) { return , @($rate, ($left - (100 - $pct) / $rate), 0.0) }
+    return , @($rate, $null, (100 - $pct - $rate * $left))
+}
+
 function Window([string]$wname, [string]$label) {
-    if (-not $rl) { return $null }
-    $w = $rl.$wname
-    if (-not $w) { return $null }
-    $pct = $w.used_percentage
-    if ($null -eq $pct) { return $null }
-    $pct = [double]$pct
-    if ($wname -eq 'seven_day' -and $pct -lt 50) { return $null }
+    # @(segment or $null, forecast when the window fills early or $null)
+    $w = $null; if ($rl) { $w = $rl.$wname }
+    $pct = $null; $resets = $null
+    if ($w) {
+        if ($null -ne $w.used_percentage) { $pct = [double]$w.used_percentage }
+        if ($w.resets_at) { $resets = [double]$w.resets_at }
+    }
+    $fc = $null
+    try { $fc = Forecast $wname $pct $resets } catch { $fc = $null }
+    $risk = [bool]($fc -and $fc[1])
+    if ($null -eq $pct -or ($wname -eq 'seven_day' -and $pct -lt 50 -and -not $risk)) { return , @($null, $null) }
     $m = Meter $pct 6 50 80
     $seg = "${DIM}${label}${RST} $($m[0]) $($m[1])"
-    $resets = $w.resets_at
-    if ($resets) {
-        $resets = [double]$resets
-        if ($pct -ge 50) {
-            $t = ([DateTimeOffset]::FromUnixTimeSeconds([long]$resets)).LocalDateTime.ToString('HH:mm', $INV)
-            $seg += " ${DIM}${RCY}${t}${RST}"
-        }
-        try {
-            $spent = $now - ($resets - $WINDOW_SECS[$wname])
-            if ($pct -ge 10 -and $spent -gt 600 -and $pct -lt 100) {
-                $toFull = (100 - $pct) * $spent / $pct
-                if (($now + $toFull) -lt $resets) { $seg += ' ' + (C '31' "$WARN full ~$(Dur $toFull)") }
-            }
-        } catch {}
+    $fmt = if ($wname -eq 'five_hour') { 'HH:mm' } else { 'ddd HH:mm' }
+    if ($risk) {
+        $seg += ' ' + (C '31' "$WARN full ~$(Clock ($resets - $fc[1]) $fmt), $(Dur $fc[1]) before $RCY$(Clock $resets $fmt)")
+    } elseif ($fc -and $pct -ge 50) {
+        $spare = "~$([Math]::Round($fc[2]))% spare at $RCY$(Clock $resets $fmt)"
+        if ($fc[2] -lt 15) { $seg += ' ' + (C '33' $spare) } else { $seg += " ${DIM}${spare}${RST}" }
+    } elseif ($resets -and $pct -ge 50) {
+        $seg += " ${DIM}${RCY}$(Clock $resets $fmt)${RST}"
     }
-    return $seg
+    if ($risk) { return , @($seg, $fc) }
+    return , @($seg, $null)
 }
+
+# $/MTok input, output, cache read (cache write ~ 1.25x input); first name match wins
+$PRICES = @(@('fable', 10, 50, 0.25), @('opus', 4, 20, 0.2), @('sonnet', 2, 10, 0.2), @('haiku', 0.1, 0.5, 0.01))
+function UsageCost($u, [string]$model) {
+    $p = $PRICES[1]
+    foreach ($q in $PRICES) { if ($model.Contains($q[0])) { $p = $q; break } }
+    $inp = ([double]$u.input_tokens * $p[1] + [double]$u.cache_creation_input_tokens * $p[1] * 1.25 +
+            [double]$u.cache_read_input_tokens * $p[3]) / 1e6
+    return , @($inp, ([double]$u.output_tokens * $p[2] / 1e6))
+}
+
+function BurnBySession {
+    # API-priced $ per session over the last LOOKBACK, from this machine's transcripts (cached 60s).
+    $cacheF = Join-Path $DATA 'burn-cache.json'
+    try {
+        $hit = Get-Content -LiteralPath $cacheF -Raw | ConvertFrom-Json
+        if (($now - [double]$hit.at) -lt 60) {
+            $out = @{}
+            foreach ($p in $hit.s.PSObject.Properties) { $out[$p.Name] = $p.Value }
+            return $out
+        }
+    } catch {}
+    $root = Join-Path $HOME '.claude/projects'
+    $files = [System.Collections.Generic.List[object]]::new()  # @(file, session id)
+    foreach ($f in @(Get-ChildItem -Path (Join-Path $root '*/*.jsonl') -File)) { $files.Add(@($f, $f.BaseName)) }
+    # subagents bill to their parent session
+    foreach ($f in @(Get-ChildItem -Path (Join-Path $root '*/*/subagents/*.jsonl') -File)) { $files.Add(@($f, $f.Directory.Parent.Name)) }
+    $out = @{}
+    foreach ($pair in $files) {
+        try {
+            $f = $pair[0]; $psid = $pair[1]
+            if (($now - [DateTimeOffset]::new($f.LastWriteTimeUtc).ToUnixTimeSeconds()) -gt $LOOKBACK) { continue }
+            $s = $out[$psid]
+            if (-not $s) {
+                $s = @{ cost = 0.0; sonnet = 0.0; inp = 0.0; ctx = 0.0; model = ''; name = ''; prompted = $false; t = 0.0 }
+                $out[$psid] = $s
+            }
+            $seen = [System.Collections.Generic.HashSet[string]]::new()
+            # shortcut: 3 MB tail per file undercounts a session that logged more in 30 min
+            foreach ($rec in (ParseJson (TailLines $f.FullName 3000000))) {
+                if ($null -eq $rec) { continue }
+                $t = Ts $rec; if ($null -eq $t) { $t = 0.0 }
+                if (($now - $t) -gt $LOOKBACK) { continue }
+                if ($rec.cwd -and -not $s.name) { $s.name = (([string]$rec.cwd).TrimEnd('/', '\') -split '[\\/]')[-1] }
+                if ((Classify $rec) -eq 'prompt') { $s.prompted = $true }
+                $m = $rec.message
+                if ($rec.type -ne 'assistant' -or -not $m -or -not $m.usage) { continue }
+                if (-not $seen.Add([string]$m.id)) { continue }
+                $u = $m.usage
+                $c = UsageCost $u ([string]$m.model)
+                $sc = UsageCost $u 'sonnet'
+                $s.cost += $c[0] + $c[1]
+                $s.inp += $c[0]
+                $s.sonnet += $sc[0] + $sc[1]
+                if (-not $rec.isSidechain -and $t -ge $s.t) {
+                    $s.t = $t; $s.model = [string]$m.model
+                    $s.ctx = [double]$u.input_tokens + [double]$u.cache_read_input_tokens + [double]$u.cache_creation_input_tokens
+                }
+            }
+        } catch { continue }
+    }
+    foreach ($key in @($out.Keys)) { if (-not ($out[$key].cost -gt 0)) { $out.Remove($key) } }
+    WriteJson $cacheF @{ at = $now; s = $out }
+    return $out
+}
+
+function Slowdown([string]$wname, $fc) {
+    # Line 3: the burn rate that lands on 100% at reset, and the cheapest local cuts to reach it.
+    $w = $rl.$wname
+    $pct = [double]$w.used_percentage; $resets = [double]$w.resets_at; $rate = $fc[0]
+    $target = (100 - $pct) / ($resets - $now)
+    $cut = 1 - $target / $rate
+    if ($wname -eq 'five_hour') { $unit = '%/h'; $per = 3600 } else { $unit = '%/d'; $per = 86400 }
+    $parts = [System.Collections.Generic.List[string]]::new()
+    $parts.Add((C '31' "$WARN slow down") + " ${DIM}" + (F '{0:0.0}{1}{2:0.0}{3} ({4}{5:0%})' ($rate * $per) $ARROW ($target * $per) $unit $MINUS $cut) + $RST)
+    $sess = BurnBySession
+    $total = 0.0
+    foreach ($v in $sess.Values) { $total += [double]$v.cost }
+    if (-not $total) { $parts.Add("${DIM}no burn on this machine: it's another machine or Hermes${RST}"); return , $parts }
+    # fable: assumes limit use is proportional to API-priced cost and all burn is local; other machines make the cut bigger
+    $need = $cut * $total
+    $top = @($sess.GetEnumerator() | Sort-Object { - [double]$_.Value.cost } | Select-Object -First 3)
+    for ($n = 0; $n -lt $top.Count; $n++) {
+        if ($need -le 0) { break }
+        $psid = [string]$top[$n].Key; $s = $top[$n].Value
+        $name = [string]$s.name; $smodel = [string]$s.model
+        $opts = [System.Collections.Generic.List[object]]::new()
+        if ($s.prompted) {
+            if ([double]$s.ctx -ge 150000) { $opts.Add(@('/compact', ([double]$s.inp * (1 - 60000 / [double]$s.ctx)))) }
+            if (-not ($smodel.Contains('sonnet') -or $smodel.Contains('haiku'))) { $opts.Add(@("${ARROW}sonnet", ([double]$s.cost - [double]$s.sonnet))) }
+        }
+        $pause = if ($s.prompted) { @('pause', [double]$s.cost) } else { @('pause bg', [double]$s.cost) }
+        # least disruptive step that covers the rest; else the biggest gentle step
+        # and let the next session make up the difference; pause as a last resort
+        $cover = $null; $gentle = $null
+        foreach ($o in $opts) {
+            if (-not $cover -and $o[1] -ge $need) { $cover = $o }
+            if (-not $gentle -or $o[1] -gt $gentle[1]) { $gentle = $o }
+        }
+        $act = if ($cover) { $cover } elseif ($gentle -and $n -lt $top.Count - 1) { $gentle } else { $pause }
+        $need -= $act[1]
+        $who = $name; if (-not $who) { $who = $psid.Substring(0, [Math]::Min(6, $psid.Length)) }
+        if (@($top | Where-Object { [string]$_.Value.name -ceq $name }).Count -gt 1) { $who += '#' + $psid.Substring(0, [Math]::Min(4, $psid.Length)) }
+        if ($psid -eq $sid) { $who += '(this)' }
+        $parts.Add("$who $([Math]::Round(100 * [double]$s.cost / $total))% " + (C '33' $act[0]))
+    }
+    return , $parts
+}
+
+$risks = [System.Collections.Generic.List[object]]::new()
 foreach ($pair in @(@('five_hour', '5h'), @('seven_day', '7d'))) {
-    $seg = Window $pair[0] $pair[1]
-    if ($seg) { $l2.Add($seg) }
+    try {
+        $r = Window $pair[0] $pair[1]
+        if ($r[0]) { $l2.Add($r[0]) }
+        if ($r[1]) { $risks.Add(@(([double]$rl.($pair[0]).resets_at - $r[1][1]), $pair[0], $r[1])) }  # when it fills
+    } catch {}
+}
+
+$l3 = @()
+if ($risks.Count) {
+    try {
+        $soonest = @($risks | Sort-Object { $_[0] })[0]
+        $l3 = Slowdown $soonest[1] $soonest[2]
+    } catch { $l3 = @() }
 }
 
 [Console]::Out.WriteLine($l1 -join $SEP)
 if ($l2.Count) { [Console]::Out.WriteLine($l2 -join $SEP) }
+if ($l3.Count) { [Console]::Out.WriteLine($l3 -join $SEP) }

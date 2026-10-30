@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.0.1 — 2026-10-29
+
+- **PowerShell Ripple HUD limit forecast**: `statusline.ps1` now matches the bash edition from v1.8.4, with fill time vs reset time, headroom at reset, and the line-3 slowdown plan. It shares `limit-samples.json` and `burn-cache.json` with bash. `statusline/test-statusline.sh ps1` runs the same self-test against it.
+
 ## v2.0.0 — 2026-10-29
 
 - **Renamed to Ripple HUD**: the plugin is now `ripple-hud` (marketplace `ripple-hud-marketplace`, repo `Dallenlol/ripple-hud`, commands `/ripple-hud:…`). The Fable operating style keeps its names: the `fable-mode` skill, `fable-level`, `fable-state`, `.fable-state.md`, `fable on/off`. **Breaking for existing installs**: run `/plugin marketplace add Dallenlol/ripple-hud`, `/plugin install ripple-hud@ripple-hud-marketplace`, then `/plugin uninstall fable-mode@fable-mode-marketplace`. The data folder moves from `~/.claude/fable-mode` to `~/.claude/ripple-hud` on the first session start; a symlink stays at the old path, so an existing `statusLine` setting keeps working. On Windows, where Git Bash may copy instead of linking, rerun `install-statusline.ps1`.
