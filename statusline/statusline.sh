@@ -1,9 +1,13 @@
 #!/bin/bash
 # Ripple HUD — fable-mode's statusline renderer for Claude Code.
-# Receives session JSON on stdin, prints a two-line ANSI HUD:
+# Receives session JSON on stdin, prints a two- or three-line ANSI HUD:
 #   line 1: persona/level, model, branch (+dirty count), cost, spend rate, duration, lines changed
 #   line 2: in-flight prompt (elapsed, estimate, current tool) + context meter,
-#           cache hit rate, usage-limit meters (5h / 7d, Pro/Max plans) with burn-out warning
+#           cache hit rate, usage-limit meters (5h / 7d, Pro/Max plans) with a forecast:
+#           when the window fills vs when it resets, or the headroom left at reset
+#   line 3: only when a window will fill early: target burn rate and the cheapest
+#           cuts among this Mac's busiest sessions (/compact, →sonnet, pause)
+# Self-test: statusline/test-statusline.sh
 # Installed to ~/.claude/fable-mode/statusline.sh by scripts/install-statusline.sh;
 # session_start.sh re-syncs the copy so plugin updates propagate.
 # Every optional segment is guarded: a failure drops that segment, never the HUD.
@@ -349,36 +353,198 @@ try:
 except Exception:
     pass
 
-# usage limits (Pro/Max): 5h always, 7d from 50%; reset time from 50%;
-# warn when the current burn rate would exhaust the window before it resets
+# usage limits (Pro/Max): 5h always, 7d from 50% or when at risk. rate_limits is
+# account-wide (every machine and agent on this login), so the forecast covers all
+# of them; the slowdown plan's per-session split only sees this Mac's transcripts.
 WINDOW_SECS = {"five_hour": 5 * 3600, "seven_day": 7 * 86400}
-def window(wname, label):
-    w = rl.get(wname) or {}
-    pct = w.get("used_percentage")
-    if pct is None or (wname == "seven_day" and pct < 50):
-        return None
-    bar, pct_s = meter(pct, width=6, warn=50, crit=80)
-    seg = f"{DIM}{label}{RST} {bar} {pct_s}"
-    resets = w.get("resets_at")
-    if resets:
-        if pct >= 50:
-            seg += f" {DIM}↻{time.strftime('%H:%M', time.localtime(resets))}{RST}"
+LOOKBACK = 1800
+
+def recent_rate(wname, pct, resets):
+    """%/s over the last ~30 min, from samples shared by every HUD on this Mac."""
+    f = f"{DATA}/limit-samples.json"
+    try:
+        data = json.load(open(f))
+    except Exception:
+        data = {}
+    w = data.get(wname) or {}
+    s = w.get("s", []) if abs(w.get("resets", 0) - resets) < 300 else []  # new window
+    s = [x for x in s if now - x[0] < 3 * 3600]
+    if not s or s[-1][1] != pct or now - s[-1][0] > 300:
+        s.append([now, pct])
+        data[wname] = {"resets": resets, "s": s}
         try:
-            spent = now - (resets - WINDOW_SECS[wname])
-            if pct >= 10 and spent > 600 and pct < 100:
-                to_full = (100 - pct) * spent / pct
-                if now + to_full < resets:
-                    seg += " " + c("31", f"⚠ full ~{dur(to_full)}")
+            tmp = f"{f}.{os.getpid()}"
+            json.dump(data, open(tmp, "w"))
+            os.replace(tmp, f)
         except Exception:
             pass
-    return seg
+    old = [x for x in s if now - x[0] >= LOOKBACK]
+    base = old[-1] if old else (s[0] if now - s[0][0] >= 900 else None)
+    return max(0.0, (pct - base[1]) / (now - base[0])) if base else None
 
+def forecast(wname, pct, resets):
+    """(rate %/s, seconds early the window fills or None, % spare at reset)."""
+    if pct is None or not resets or resets <= now or pct >= 100:
+        return None
+    rate = recent_rate(wname, pct, resets) if wname == "five_hour" else None
+    if rate is None:  # 7d, or too few samples yet: average over the window so far
+        spent = now - (resets - WINDOW_SECS[wname])
+        if pct < 10 or spent < 600:
+            return None
+        rate = pct / spent
+    left = resets - now
+    if rate * left > 100 - pct:
+        return rate, left - (100 - pct) / rate, 0
+    return rate, None, 100 - pct - rate * left
+
+def window(wname, label):
+    w = rl.get(wname) or {}
+    pct, resets = w.get("used_percentage"), w.get("resets_at")
+    try:
+        fc = forecast(wname, pct, resets)
+    except Exception:
+        fc = None
+    risk = bool(fc and fc[1])
+    if pct is None or (wname == "seven_day" and pct < 50 and not risk):
+        return None, None
+    bar, pct_s = meter(pct, width=6, warn=50, crit=80)
+    seg = f"{DIM}{label}{RST} {bar} {pct_s}"
+    fmt = "%H:%M" if wname == "five_hour" else "%a %H:%M"
+    at = lambda t: time.strftime(fmt, time.localtime(t))
+    if risk:
+        seg += " " + c("31", f"⚠ full ~{at(resets - fc[1])}, {dur(fc[1])} before ↻{at(resets)}")
+    elif fc and pct >= 50:
+        spare = f"~{round(fc[2])}% spare at ↻{at(resets)}"
+        seg += " " + (c("33", spare) if fc[2] < 15 else f"{DIM}{spare}{RST}")
+    elif resets and pct >= 50:
+        seg += f" {DIM}↻{at(resets)}{RST}"
+    return seg, (fc if risk else None)
+
+# $/MTok input, output, cache read (cache write ≈ 1.25× input)
+PRICES = {"fable": (10, 50, 0.25), "opus": (4, 20, 0.2), "sonnet": (2, 10, 0.2), "haiku": (0.1, 0.5, 0.01)}
+def usage_cost(u, model):
+    i, o, r = next((p for name, p in PRICES.items() if name in (model or "")), PRICES["opus"])
+    inp = (u.get("input_tokens", 0) * i + u.get("cache_creation_input_tokens", 0) * i * 1.25
+           + u.get("cache_read_input_tokens", 0) * r) / 1e6
+    return inp, u.get("output_tokens", 0) * o / 1e6
+
+def burn_by_session():
+    """API-priced $ per session over the last LOOKBACK, from this Mac's transcripts (cached 60s)."""
+    cache_f = f"{DATA}/burn-cache.json"
+    try:
+        hit = json.load(open(cache_f))
+        if now - hit["at"] < 60:
+            return hit["s"]
+    except Exception:
+        pass
+    import glob
+    root = os.path.expanduser("~/.claude/projects")
+    out = {}
+    for path in glob.glob(f"{root}/*/*.jsonl") + glob.glob(f"{root}/*/*/subagents/*.jsonl"):
+        try:
+            if now - os.path.getmtime(path) > LOOKBACK:
+                continue
+            rel = os.path.relpath(path, root).split(os.sep)
+            psid = rel[1][:-6] if len(rel) == 2 else rel[1]  # subagents bill to their parent
+            s = out.setdefault(psid, {"cost": 0, "sonnet": 0, "inp": 0, "ctx": 0, "model": "",
+                                      "name": "", "prompted": False, "t": 0})
+            seen = set()
+            # shortcut: 3 MB tail per file undercounts a session that logged more in 30 min
+            for line in tail_lines(path, 3_000_000):
+                if '"user"' not in line and '"assistant"' not in line:
+                    continue
+                rec = json.loads(line)
+                t = ts(rec) or 0
+                if now - t > LOOKBACK:
+                    continue
+                if rec.get("cwd") and not s["name"]:
+                    s["name"] = os.path.basename(rec["cwd"].rstrip("/"))
+                if classify(rec) == "prompt":
+                    s["prompted"] = True
+                m = rec.get("message") or {}
+                u = m.get("usage")
+                if rec.get("type") != "assistant" or not u or m.get("id") in seen:
+                    continue
+                seen.add(m.get("id"))
+                inp, outp = usage_cost(u, m.get("model"))
+                s_in, s_out = usage_cost(u, "sonnet")
+                s["cost"] += inp + outp
+                s["inp"] += inp
+                s["sonnet"] += s_in + s_out
+                if not rec.get("isSidechain") and t >= s["t"]:
+                    s["t"], s["model"] = t, m.get("model") or ""
+                    s["ctx"] = (u.get("input_tokens", 0) + u.get("cache_read_input_tokens", 0)
+                                + u.get("cache_creation_input_tokens", 0))
+        except Exception:
+            continue
+    out = {k_: v for k_, v in out.items() if v["cost"] > 0}
+    try:
+        tmp = f"{cache_f}.{os.getpid()}"
+        json.dump({"at": now, "s": out}, open(tmp, "w"))
+        os.replace(tmp, cache_f)
+    except Exception:
+        pass
+    return out
+
+def slowdown(wname, fc):
+    """Line 3: the burn rate that lands on 100% at reset, and the cheapest local cuts to reach it."""
+    w = rl[wname]
+    pct, resets, rate = w["used_percentage"], w["resets_at"], fc[0]
+    target = (100 - pct) / (resets - now)
+    cut = 1 - target / rate
+    unit, per = ("%/h", 3600) if wname == "five_hour" else ("%/d", 86400)
+    parts = [c("31", "⚠ slow down") + f" {DIM}{rate * per:.1f}→{target * per:.1f}{unit} (−{cut:.0%}){RST}"]
+    sess = burn_by_session()
+    total = sum(s["cost"] for s in sess.values())
+    if not total:
+        return parts + [f"{DIM}no burn on this Mac: it's another machine or Hermes{RST}"]
+    # fable: assumes limit use ∝ API-priced cost and all burn is local; other machines make the cut bigger
+    need = cut * total
+    top = sorted(sess.items(), key=lambda kv: -kv[1]["cost"])[:3]
+    names = [s["name"] for _, s in top]
+    for n, (psid, s) in enumerate(top):
+        if need <= 0:
+            break
+        opts = []
+        if s["prompted"]:
+            if s["ctx"] >= 150_000:
+                opts.append(("/compact", s["inp"] * (1 - 60_000 / s["ctx"])))
+            if not any(m in s["model"] for m in ("sonnet", "haiku")):
+                opts.append(("→sonnet", s["cost"] - s["sonnet"]))
+        pause = ("pause", s["cost"]) if s["prompted"] else ("pause bg", s["cost"])
+        # least disruptive step that covers the rest; else the biggest gentle step
+        # and let the next session make up the difference; pause as a last resort
+        cover = [o for o in opts if o[1] >= need]
+        gentle = max(opts, key=lambda o: o[1], default=None)
+        act, save = cover[0] if cover else (gentle if gentle and n < len(top) - 1 else pause)
+        need -= save
+        who = s["name"] or psid[:6]
+        if names.count(s["name"]) > 1:
+            who += f"#{psid[:4]}"
+        if psid == sid:
+            who += "(this)"
+        parts.append(f"{who} {round(100 * s['cost'] / total)}% {c('33', act)}")
+    return parts
+
+risks = []
 for wname, label in (("five_hour", "5h"), ("seven_day", "7d")):
-    seg = window(wname, label)
+    seg, fc = window(wname, label)
     if seg:
         l2.append(seg)
+    if fc:
+        risks.append((rl[wname]["resets_at"] - fc[1], wname, fc))  # when it fills
+
+l3 = []
+if risks:
+    try:
+        _, wname, fc = min(risks)
+        l3 = slowdown(wname, fc)
+    except Exception:
+        l3 = []
 
 print(SEP.join(l1))
 if l2:
     print(SEP.join(l2))
+if l3:
+    print(SEP.join(l3))
 PY

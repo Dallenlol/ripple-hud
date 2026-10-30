@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.8.4 — 2026-10-29
+
+- **Ripple HUD limit forecast** (bash edition): the 5h/7d meters now say when the window fills versus when it resets (`⚠ full ~15:40, 1h00m before ↻16:40`), or the headroom you'll have left at reset (`~22% spare at ↻16:40`, shown from 50%). The 5h rate uses the last ~30 min of usage, from samples every HUD on the machine shares in `limit-samples.json`; until there are enough samples, and for the 7d window, it averages over the window so far. When a window is at risk, a third line shows the target burn rate and the cut needed, plus the cheapest fixes for this machine's busiest sessions over the last 30 min: `/compact` for big contexts, `→sonnet`, or pause, with `pause bg` for sessions nobody has prompted. Per-session cost is cached 60 s in `burn-cache.json`. New `statusline/test-statusline.sh` self-test. The PowerShell edition still shows the old `⚠ full` warning.
+
 ## v1.8.3 — 2026-10-20
 
 - **PowerShell Ripple HUD at parity**: `statusline.ps1` now renders the same calm HUD as the bash edition — prompt timer and estimate (sharing `eta-cache.json` with bash), current tool, threshold-only spend/cache/tokens-left/7-day/reset segments, `⚠ full` burn warning, dirty-file count, thin meters. Still Windows PowerShell 5.1 compatible and pure-ASCII source. `install-statusline.ps1` gains an opt-in `-RefreshInterval N`; it stays off by default because each refresh spawns PowerShell (~0.4–0.6 s CPU) versus ~60 ms for bash.
