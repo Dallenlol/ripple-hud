@@ -16,20 +16,22 @@ home, samples = sys.argv[1], sys.argv[2]
 now = time.time()
 iso = lambda t: datetime.fromtimestamp(t, timezone.utc).isoformat().replace("+00:00", "Z")
 proj = f"{home}/.claude/projects"
-os.makedirs(f"{home}/.claude/fable-mode", exist_ok=True)
+os.makedirs(f"{home}/.claude/ripple-hud", exist_ok=True)
 if samples:
-    open(f"{home}/.claude/fable-mode/limit-samples.json", "w").write(samples)
+    open(f"{home}/.claude/ripple-hud/limit-samples.json", "w").write(samples)
+
+dumps = lambda o: json.dumps(o, separators=(",", ":"))  # compact, like Claude Code's transcripts
 
 def write(path, cwd, model, n, ctx, prompted, sidechain=False):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         if prompted:
-            f.write(json.dumps({"type": "user", "timestamp": iso(now - 900), "cwd": cwd,
+            f.write(dumps({"type": "user", "timestamp": iso(now - 900), "cwd": cwd,
                                 "message": {"role": "user", "content": "do the thing"}}) + "\n")
         for i in range(n):
             u = {"input_tokens": 1000, "cache_creation_input_tokens": 4000,
                  "cache_read_input_tokens": ctx - 5000, "output_tokens": 2000}
-            f.write(json.dumps({"type": "assistant", "timestamp": iso(now - 800 + i), "cwd": cwd,
+            f.write(dumps({"type": "assistant", "timestamp": iso(now - 800 + i), "cwd": cwd,
                                 "isSidechain": sidechain,
                                 "message": {"id": f"{path}-{i}", "model": model, "usage": u}}) + "\n")
 
@@ -65,7 +67,7 @@ check risk "$out" "slow down 28\.[0-9]→20\.0%/h \(−30%\)"
 check risk "$out" "Setmo [0-9]+% /compact"
 check risk "$out" "7d" absent
 python3 -c "import json,sys; s=json.load(open(sys.argv[1]))['five_hour']['s']; assert len(s)==2 and s[-1][1]==60, s" \
-  "$h/.claude/fable-mode/limit-samples.json" || { echo "FAIL risk: sample not recorded"; fail=1; }
+  "$h/.claude/ripple-hud/limit-samples.json" || { echo "FAIL risk: sample not recorded"; fail=1; }
 
 # 2. on pace: 58% -> 60% in ~32 min = 3.8%/h, 2h left -> ~32% spare, no plan
 h=$(mktemp -d)

@@ -12,8 +12,7 @@
 set -u
 
 INPUT="$(cat)"
-# One data dir shared with the statusline and the level/state commands.
-DATA_DIR="$HOME/.claude/fable-mode"
+. "$(dirname "$0")/data_dir.sh"
 mkdir -p "$DATA_DIR" 2>/dev/null || exit 0
 # Migrate stats logged by <=1.7 into the plugin data dir.
 OLD="${CLAUDE_PLUGIN_DATA:-}/stats.jsonl"

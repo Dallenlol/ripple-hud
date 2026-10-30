@@ -4,8 +4,7 @@
 set -euo pipefail
 
 ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
-# One data dir shared with the statusline and the level/state commands.
-DATA_DIR="$HOME/.claude/fable-mode"
+. "$ROOT/hooks/data_dir.sh"
 
 echo "FABLE MODE ACTIVE — apply the following operating style for the entire session:"
 awk 'f; /^---$/ { if (++c == 2) f = 1 }' "$ROOT/skills/fable-mode/SKILL.md"
@@ -55,7 +54,7 @@ if [ -f "$DATA_DIR/level" ]; then
   esac
 fi
 
-# State loop (toggle: /fable-mode:fable-state on|off). Injects the project memory
+# State loop (toggle: /ripple-hud:fable-state on|off). Injects the project memory
 # file so a /clear'd session resumes from ~2k tokens instead of the full history.
 if [ -f "$DATA_DIR/state-loop" ]; then
   echo ""

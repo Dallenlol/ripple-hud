@@ -13,13 +13,13 @@ Complete installation walkthrough for every platform Fable runs on. Total time: 
 Inside any Claude Code session:
 
 ```
-/plugin marketplace add Dallenlol/fable-mode
-/plugin install fable-mode@fable-mode-marketplace
+/plugin marketplace add Dallenlol/ripple-hud
+/plugin install ripple-hud@ripple-hud-marketplace
 ```
 
 Restart the session (or `/clear`). You should see `FABLE MODE ACTIVE` in the session context — that's the SessionStart hook injecting the operating style. It re-injects automatically on resume, `/clear`, and after compaction.
 
-**Verify:** ask Claude "is fable mode active?" — or run `/fable-mode:fable-mode` to re-assert it manually.
+**Verify:** ask Claude "is fable mode active?" — or run `/ripple-hud:fable-mode` to re-assert it manually.
 
 ## 2. Statusline HUD (optional, recommended)
 
@@ -35,14 +35,14 @@ Install it from a clone of this repo (the installer copies the renderer to a sta
 **macOS / Linux / Git Bash / WSL** (bash + python3 renderer):
 
 ```bash
-git clone https://github.com/Dallenlol/fable-mode && fable-mode/scripts/install-statusline.sh
+git clone https://github.com/Dallenlol/ripple-hud && ripple-hud/scripts/install-statusline.sh
 ```
 
 **Native Windows without Git Bash** (pure-PowerShell renderer — needs no bash or python3):
 
 ```powershell
-git clone https://github.com/Dallenlol/fable-mode
-powershell -NoProfile -ExecutionPolicy Bypass -File fable-mode\scripts\install-statusline.ps1
+git clone https://github.com/Dallenlol/ripple-hud
+powershell -NoProfile -ExecutionPolicy Bypass -File ripple-hud\scripts\install-statusline.ps1
 ```
 
 Both write the same HUD; pick the one matching your shell. The bash installer sets `refreshInterval: 2` so the prompt timer ticks during long tool calls; the PowerShell one leaves it off (each refresh starts PowerShell, ~0.5 s of CPU) — opt in with `-RefreshInterval 5`. Each refuses to replace an existing statusline unless you pass `--force` (bash) / `-Force` (PowerShell). Uninstall by deleting the `statusLine` key from `~/.claude/settings.json`. Non-default context sizes: set `FABLE_CTX_LIMIT` (only used by the fallback path on older CLIs; new CLIs report window size natively).
@@ -52,8 +52,8 @@ Both write the same HUD; pick the one matching your shell. The bash installer se
 Fable auto-routes every task to lite / full / deep. To override:
 
 ```
-/fable-mode:fable-level deep     # pin (persists across sessions)
-/fable-mode:fable-level auto     # back to auto-routing
+/ripple-hud:fable-level deep     # pin (persists across sessions)
+/ripple-hud:fable-level auto     # back to auto-routing
 ```
 
 Or just say `fable level: lite` in chat for the current session.
@@ -63,7 +63,7 @@ Or just say `fable level: lite` in chat for the current session.
 Usage is logged locally per session (no telemetry — nothing leaves your machine). Ask any time:
 
 ```
-/fable-mode:fable-stats
+/ripple-hud:fable-stats
 ```
 
 ## 5. claude.ai (web / desktop / mobile — no Claude Code)
@@ -81,7 +81,7 @@ Copy [`AGENTS.md`](AGENTS.md) from this repo into your project root (or your too
 
 ## The state loop (optional)
 
-`/fable-mode:fable-state on` turns on the project memory loop: Fable maintains `.fable-state.md` in your project root every turn, and after any `/clear` the SessionStart hook re-injects it — so long projects continue from a ~2k-token state file instead of a six-figure chat history. Add `.fable-state.md` to `.gitignore` on shared repos. `off` to disable.
+`/ripple-hud:fable-state on` turns on the project memory loop: Fable maintains `.fable-state.md` in your project root every turn, and after any `/clear` the SessionStart hook re-injects it — so long projects continue from a ~2k-token state file instead of a six-figure chat history. Add `.fable-state.md` to `.gitignore` on shared repos. `off` to disable.
 
 ## Windows
 
@@ -90,7 +90,7 @@ The hooks are bash + python3: they work in **Git Bash / WSL**. The statusline HU
 ## Updating
 
 ```
-/plugin update fable-mode@fable-mode-marketplace
+/plugin update ripple-hud@ripple-hud-marketplace
 ```
 
 The SessionStart hook auto-syncs your installed statusline copy on the next session.
@@ -98,18 +98,18 @@ The SessionStart hook auto-syncs your installed statusline copy on the next sess
 ## Uninstalling
 
 ```
-/plugin uninstall fable-mode@fable-mode-marketplace
+/plugin uninstall ripple-hud@ripple-hud-marketplace
 ```
 
-Then optionally remove `~/.claude/fable-mode/` (stats + level pin) and the `statusLine` key in `~/.claude/settings.json`.
+Then optionally remove `~/.claude/ripple-hud/` (stats + level pin) and the `statusLine` key in `~/.claude/settings.json`.
 
 ## Troubleshooting
 
 | Symptom | Fix |
 |---|---|
 | No `FABLE MODE ACTIVE` in context | Run `/doctor` — check the plugin loaded; restart the session; confirm `hooks/session_start.sh` is executable |
-| Statusline blank (bash) | Confirm `python3 --version` works; run it manually: `echo '{}' \| ~/.claude/fable-mode/statusline.sh` |
-| Statusline blank (Windows PowerShell) | Run it manually: `echo '{}' \| powershell -NoProfile -File $HOME\.claude\fable-mode\statusline.ps1` — prints `fable` on valid-but-empty input |
+| Statusline blank (bash) | Confirm `python3 --version` works; run it manually: `echo '{}' \| ~/.claude/ripple-hud/statusline.sh` |
+| Statusline blank (Windows PowerShell) | Run it manually: `echo '{}' \| powershell -NoProfile -File $HOME\.claude\ripple-hud\statusline.ps1` — prints `fable` on valid-but-empty input |
 | No 5h/7d usage meters | They appear only for Claude Pro/Max subscribers, after the first response in a session — API-key users have no rate-limit windows |
 | `/fable-stats` says no stats | Stats appear after the first completed session with the plugin installed |
 | Behavior drifts in long sessions | The style re-injects after compaction automatically; say "fable on" to re-assert instantly |

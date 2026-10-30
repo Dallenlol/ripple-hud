@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# Installs the native PowerShell fable-mode statusline (no Git Bash / python3).
+# Installs the native PowerShell Ripple HUD statusline (no Git Bash / python3).
 # Copies the renderer to a stable path and points settings.json at it via
 # powershell.exe. Refuses to replace a different statusline unless -Force.
 #
@@ -15,7 +15,7 @@
 param(
     [switch]$Force,
     [int]$RefreshInterval = 0,
-    [string]$DataDir = (Join-Path $HOME '.claude/fable-mode'),
+    [string]$DataDir = (Join-Path $HOME '.claude/ripple-hud'),
     [string]$SettingsPath = (Join-Path $HOME '.claude/settings.json')
 )
 $ErrorActionPreference = 'Stop'
@@ -75,4 +75,4 @@ if (-not $raw) {
 
 if (Test-Path $SettingsPath) { Copy-Item -Force -LiteralPath $SettingsPath -Destination "$SettingsPath.bak" }
 [IO.File]::WriteAllText($SettingsPath, $new, [System.Text.UTF8Encoding]::new($false))
-Write-Output "fable-mode statusline installed -> $command`nRestart Claude Code (or start a new session) to see it."
+Write-Output "Ripple HUD statusline installed -> $command`nRestart Claude Code (or start a new session) to see it."

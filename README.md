@@ -1,6 +1,6 @@
-# ⚡ Fable
+# ⚡ Ripple HUD
 
-**Make any Claude model work like a frontier model — Fable 5's judgment, workflow, and token discipline as a Claude Code plugin** (`fable-mode`).
+**Make any Claude model work like a frontier model — Fable 5's judgment, workflow, and token discipline as a Claude Code plugin** (`ripple-hud`, formerly `fable-mode`; the operating style itself is still the `fable-mode` skill).
 
 **Fable is a persona**: the frontier model's work ethic, installed on whatever model you can afford. It reads less, writes less, verifies more — and it stays in character for the whole session (`fable off` to release it).
 
@@ -12,7 +12,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Claude Code Plugin](https://img.shields.io/badge/Claude%20Code-plugin-orange)](https://code.claude.com/docs/en/plugins)
-[![Release](https://img.shields.io/github/v/release/Dallenlol/fable-mode)](https://github.com/Dallenlol/fable-mode/releases)
+[![Release](https://img.shields.io/github/v/release/Dallenlol/ripple-hud)](https://github.com/Dallenlol/ripple-hud/releases)
 
 Frontier models don't win by writing more — they win by judgment: reading only what matters, fixing root causes instead of symptoms, attacking their own answers before trusting them, and saying what happened in one sentence instead of five paragraphs. `fable-mode` distills that operating style from Claude Fable 5 into a ~1,500-token behavioral layer that loads automatically at the start of every Claude Code session, so cheaper models (Opus, Sonnet, Haiku) work the same way — and spend dramatically fewer tokens doing it.
 
@@ -21,11 +21,11 @@ Honest framing up front: this is a behavioral layer, not a model swap. It can't 
 ## Quick start
 
 ```
-/plugin marketplace add Dallenlol/fable-mode
-/plugin install fable-mode@fable-mode-marketplace
+/plugin marketplace add Dallenlol/ripple-hud
+/plugin install ripple-hud@ripple-hud-marketplace
 ```
 
-That's it. The operating style injects automatically on session start, resume, `/clear`, and after compaction. Pick any model (`/model opus`, `/model sonnet`) and work normally. To re-assert it manually mid-session: `/fable-mode:fable-mode`.
+That's it. The operating style injects automatically on session start, resume, `/clear`, and after compaction. Pick any model (`/model opus`, `/model sonnet`) and work normally. To re-assert it manually mid-session: `/ripple-hud:fable-mode`.
 
 ## Intensity levels — auto by default
 
@@ -40,7 +40,7 @@ You don't have to classify anything. fable-mode silently routes every task to on
 Misrouted tasks escalate immediately (lite → deep mid-task is encouraged; moving down is not). To pin a level, just say `fable level: lite` (or `full`/`deep`) in chat — or persist it across sessions:
 
 ```bash
-mkdir -p ~/.claude/fable-mode && echo deep > ~/.claude/fable-mode/level
+mkdir -p ~/.claude/ripple-hud && echo deep > ~/.claude/ripple-hud/level
 ```
 
 ## What it does
@@ -76,7 +76,7 @@ Usage meters turn **yellow at 50%** and red at 80%, with the window's reset time
 scripts/install-statusline.sh   # see INSTALL.md for the full walkthrough
 ```
 
-The renderer is a single ~45ms script reading only local files. Pin levels on the fly with `/fable-mode:fable-level lite|full|deep|auto`.
+The renderer is a single ~45ms script reading only local files. Pin levels on the fly with `/ripple-hud:fable-level lite|full|deep|auto`.
 
 ## The closed loop — it learns your model's bad habits
 
@@ -91,17 +91,17 @@ No telemetry, no cloud, no config — the transcripts never leave your machine, 
 The single biggest token sink in long sessions is the conversation itself: every turn re-bills the entire history as input. The state loop replaces it with a project memory file:
 
 ```
-/fable-mode:fable-state on
+/ripple-hud:fable-state on
 ```
 
-From then on, Fable maintains `.fable-state.md` in your project root at the end of every substantive turn — goal, decisions with reasons, what's done, what's next, key files — rewritten for density, never appended. When the context meter runs hot, just `/clear`: the SessionStart hook injects the state file into the fresh session automatically, and work continues from ~2k tokens of curated context instead of 100k+ of raw history. It beats built-in compaction three ways: you control when, the model curates *what matters* rather than summarizing everything, and the file persists across sessions and is yours to read or edit. The statusline shows `✎ state` while the loop is active. `/fable-mode:fable-state off` to stop.
+From then on, Fable maintains `.fable-state.md` in your project root at the end of every substantive turn — goal, decisions with reasons, what's done, what's next, key files — rewritten for density, never appended. When the context meter runs hot, just `/clear`: the SessionStart hook injects the state file into the fresh session automatically, and work continues from ~2k tokens of curated context instead of 100k+ of raw history. It beats built-in compaction three ways: you control when, the model curates *what matters* rather than summarizing everything, and the file persists across sessions and is yours to read or edit. The statusline shows `✎ state` while the loop is active. `/ripple-hud:fable-state off` to stop.
 
 ## See what it saves you
 
 fable-mode logs per-session token usage **locally** (nothing is transmitted anywhere): a `Stop` hook appends one JSON line per session to the plugin's data directory. Ask for your numbers any time:
 
 ```
-/fable-mode:fable-stats
+/ripple-hud:fable-stats
 ```
 
 You get totals and a recent-session breakdown — output tokens, fresh input, cache reads — straight from your own transcripts.
@@ -135,7 +135,7 @@ evals/run.py --runs 3 --model haiku   # reproduce on your own account
 ## How it works
 
 ```
-fable-mode/
+ripple-hud/
 ├── .claude-plugin/
 │   ├── plugin.json           # plugin manifest
 │   └── marketplace.json      # repo doubles as its own marketplace
@@ -145,7 +145,7 @@ fable-mode/
 │   └── stop_stats.sh         # local per-session token log (no telemetry)
 ├── skills/
 │   ├── fable-mode/SKILL.md   # the operating style — single source of truth
-│   └── fable-stats/SKILL.md  # /fable-mode:fable-stats usage reports
+│   └── fable-stats/SKILL.md  # /ripple-hud:fable-stats usage reports
 ├── evals/                    # reproducible A/B benchmark (6 graded tasks)
 ├── scripts/build-agents-md.sh
 └── AGENTS.md                 # generated portable export
@@ -161,7 +161,7 @@ It won't make a small model derive novel mathematics like a frontier model, and 
 
 ```
 /plugin marketplace add /path/to/fable-mode
-/plugin install fable-mode@fable-mode-marketplace
+/plugin install ripple-hud@ripple-hud-marketplace
 ```
 
 Edit `skills/fable-mode/SKILL.md`, run `scripts/build-agents-md.sh`, validate with `claude plugin validate .`, and run the evals before shipping prompt changes — that's the regression suite for the prompt.

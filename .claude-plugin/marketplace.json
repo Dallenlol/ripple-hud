@@ -1,5 +1,5 @@
 {
-  "name": "fable-mode-marketplace",
+  "name": "ripple-hud-marketplace",
   "description": "Fable 5 operating style for any Claude model \u2014 frontier judgment, difficulty routing, and token discipline in one plugin.",
   "owner": {
     "name": "Dallenlol",
@@ -7,7 +7,7 @@
   },
   "plugins": [
     {
-      "name": "fable-mode",
+      "name": "ripple-hud",
       "source": "./",
       "description": "Make any Claude model work like Fable 5: its task workflow, difficulty routing with a hard-problem protocol, and token discipline.",
       "category": "productivity",
@@ -17,7 +17,7 @@
         "prompt-engineering",
         "agents"
       ],
-      "displayName": "Fable"
+      "displayName": "Ripple HUD"
     }
   ]
 }

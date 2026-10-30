@@ -1,12 +1,12 @@
 {
-  "name": "fable-mode",
-  "version": "1.8.4",
+  "name": "ripple-hud",
+  "version": "2.0.0",
   "description": "Make any Claude model work like Fable 5: its task workflow, auto-routed intensity levels with a hard-problem protocol, local token stats, and token discipline. Same quality bar, far fewer tokens.",
   "author": {
     "name": "Dallenlol",
     "url": "https://github.com/Dallenlol"
   },
-  "repository": "https://github.com/Dallenlol/fable-mode",
+  "repository": "https://github.com/Dallenlol/ripple-hud",
   "license": "MIT",
   "keywords": [
     "claude",
@@ -16,5 +16,5 @@
     "ai-agents",
     "prompt-engineering"
   ],
-  "displayName": "Fable"
+  "displayName": "Ripple HUD"
 }

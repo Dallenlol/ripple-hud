@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.0.0 — 2026-10-29
+
+- **Renamed to Ripple HUD**: the plugin is now `ripple-hud` (marketplace `ripple-hud-marketplace`, repo `Dallenlol/ripple-hud`, commands `/ripple-hud:…`). The Fable operating style keeps its names: the `fable-mode` skill, `fable-level`, `fable-state`, `.fable-state.md`, `fable on/off`. **Breaking for existing installs**: run `/plugin marketplace add Dallenlol/ripple-hud`, `/plugin install ripple-hud@ripple-hud-marketplace`, then `/plugin uninstall fable-mode@fable-mode-marketplace`. The data folder moves from `~/.claude/fable-mode` to `~/.claude/ripple-hud` on the first session start; a symlink stays at the old path, so an existing `statusLine` setting keeps working. On Windows, where Git Bash may copy instead of linking, rerun `install-statusline.ps1`.
+
 ## v1.8.4 — 2026-10-29
 
 - **Ripple HUD limit forecast** (bash edition): the 5h/7d meters now say when the window fills versus when it resets (`⚠ full ~15:40, 1h00m before ↻16:40`), or the headroom you'll have left at reset (`~22% spare at ↻16:40`, shown from 50%). The 5h rate uses the last ~30 min of usage, from samples every HUD on the machine shares in `limit-samples.json`; until there are enough samples, and for the 7d window, it averages over the window so far. When a window is at risk, a third line shows the target burn rate and the cut needed, plus the cheapest fixes for this machine's busiest sessions over the last 30 min: `/compact` for big contexts, `→sonnet`, or pause, with `pause bg` for sessions nobody has prompted. Per-session cost is cached 60 s in `burn-cache.json`. New `statusline/test-statusline.sh` self-test. The PowerShell edition still shows the old `⚠ full` warning.

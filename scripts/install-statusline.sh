@@ -1,5 +1,5 @@
 #!/bin/bash
-# Installs the fable-mode statusline: copies the renderer to a stable path and
+# Installs the Ripple HUD statusline: copies the renderer to a stable path and
 # points ~/.claude/settings.json at it. Refuses to overwrite a different
 # statusline unless --force is given.
 #
@@ -9,7 +9,7 @@
 # this installer.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DATA="$HOME/.claude/fable-mode"
+DATA="$HOME/.claude/ripple-hud"
 SETTINGS="$HOME/.claude/settings.json"
 TARGET="$DATA/statusline.sh"
 
@@ -73,6 +73,6 @@ if os.path.exists(settings_path):
 tmp = settings_path + ".tmp"
 json.dump(settings, open(tmp, "w"), indent=2)
 os.replace(tmp, settings_path)
-print(f"fable-mode statusline installed -> {command}\n"
+print(f"Ripple HUD statusline installed -> {command}\n"
       f"Restart Claude Code (or start a new session) to see it.")
 PY

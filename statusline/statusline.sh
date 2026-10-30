@@ -1,5 +1,5 @@
 #!/bin/bash
-# Ripple HUD — fable-mode's statusline renderer for Claude Code.
+# Ripple HUD — the statusline renderer for Claude Code.
 # Receives session JSON on stdin, prints a two- or three-line ANSI HUD:
 #   line 1: persona/level, model, branch (+dirty count), cost, spend rate, duration, lines changed
 #   line 2: in-flight prompt (elapsed, estimate, current tool) + context meter,
@@ -8,7 +8,7 @@
 #   line 3: only when a window will fill early: target burn rate and the cheapest
 #           cuts among this Mac's busiest sessions (/compact, →sonnet, pause)
 # Self-test: statusline/test-statusline.sh
-# Installed to ~/.claude/fable-mode/statusline.sh by scripts/install-statusline.sh;
+# Installed to ~/.claude/ripple-hud/statusline.sh by scripts/install-statusline.sh;
 # session_start.sh re-syncs the copy so plugin updates propagate.
 # Every optional segment is guarded: a failure drops that segment, never the HUD.
 set -u
@@ -36,7 +36,7 @@ rl = d.get("rate_limits") or {}
 pc = d.get("prompt_cache") or {}
 now = time.time()
 
-DATA = os.path.expanduser("~/.claude/fable-mode")
+DATA = os.path.expanduser("~/.claude/ripple-hud")
 DIM, RST = "\033[2m", "\033[0m"
 def c(code, s): return f"\033[{code}m{s}{RST}"
 SEP = f"  {DIM}·{RST}  "

@@ -16,4 +16,4 @@ labels: bug
 
 **Repro**
 Steps or the exact command. For statusline issues, include the output of:
-`echo '{}' | ~/.claude/fable-mode/statusline.sh`
+`echo '{}' | ~/.claude/ripple-hud/statusline.sh`
